@@ -1,0 +1,120 @@
+function [C, U, R, rerr, cid, rid, ccnt, rcnt] = CMD(A, k, c, r);
+% [C, U, R, rerr, cid, rid, ccnt, rcnt] = CMDstar(A, k, c, r);
+% CMDstar     Constructs the CMD decomposition (no duplicates)
+%
+% Input:
+%   A: original data matrix
+%   k: the rank of the low rank approximation
+%   c, r: the number of column and row samples (before duplicate removal)
+% Output:
+%   C,U,R: the decomposed matrices, s.t. norm(A-C*U*R,'fro') is small
+%   rerr: relative reconstruction error in Frobenius norm
+%   cid, rid: sample col/row ids from A in C and R
+%   ccnt, rcnt: the number of copies of each sample col and row
+%
+% Examples:
+% >> A = rand(100,10)*rand(10,10)*rand(10,50);
+% >> rank(A)
+%
+% ans =
+%
+%     10
+% >> [C, U, R, rerr, cid, rid, ccnt, rcnt] = CMD(A, 10, 20, 15);
+% >> rerr
+% rerr =
+%    1.4329e-26
+%
+% By Jimeng Sun, 08/31/07
+% Copyright 2007, Jimeng SUN
+
+
+if nargin < 4
+    c = k;
+    r = k;
+end
+%proportional to row/column length
+[prow, pcol] = fast_sample_prob(A);
+[rids] = sample_rows(A, r, prow);
+[cids] = sample_rows(A', c, pcol);
+%count the duplicates
+% very very tricky and crazy, understanding is not required
+[tmp, rid, rcnt] = find(sparse(1,rids,1));
+[tmp, cid, ccnt] = find(sparse(1,cids,1));
+
+C = A(:,cid)*diag(ccnt.^(1/2));
+Cinv = pinvs(C,k);
+R = diag(rcnt.^(1/2))*A(rid,:);
+Rinv = pinvs(R,k);
+U = Cinv*A*Rinv;
+
+if nargout>3
+    rerr = norm(A-C*U*R,'fro')^2/norm(A,'fro')^2;
+end
+
+%===============================================================================
+
+function X = pinvs(A, k)
+%PINVS   Pseudoinverse.
+%   X = PINVS(A) produces a matrix X of the same dimensions
+%   as A' so that A*X*A = A, X*A*X = X and A*X and X*A
+%   are Hermitian.
+%
+%   A: input matrix
+%   k: the rank of A
+%
+% By Jimeng Sun, 08/31/07
+% Copyright 2007, Jimeng SUN
+
+[U,S,V] = svds(A,k);
+s = diag(S);
+k = length(s);
+S = diag(ones(k,1)./s);
+X = V*S*U';
+
+%===============================================================================
+
+function [prow, pcol] = fast_sample_prob(A);
+%
+% [prow, pcol] = fast_sample_prob(A);
+%
+% This probability distribution is based on the squared row/col-lengths of A
+%
+% By Jimeng Sun, 08/31/07
+% Copyright 2007, Jimeng SUN
+
+Asquare = A.^2;
+part1 = sum(Asquare,2);
+part2 = sum(Asquare,1);
+prow = part1./sum(part1);
+pcol = part2./sum(part2);
+
+%===============================================================================
+
+function [ind] = sample_rows(A, s, probs);
+%
+% [ind] = sample_rows(probs, s, probs)
+%
+% This function samples s rows from a matrix A with respect to
+% the probabilities in the vector probs.
+%
+% By Jimeng Sun, 08/31/07
+% Copyright 2007, Jimeng SUN
+
+prob_rows = cumsum(probs);
+% Pick a random subset of s rows of A
+
+% pick random numbers between 0 and 1
+rand_rows = rand(s,1);
+
+for i=1:s,
+    %
+    % Find the first element in rand_cols that is larger than
+    % the random number and pick the appropriate column. Update
+    % the matrix C and the vector COLS_PICKED.
+    %
+    tempI = find(prob_rows > rand_rows(i));
+    temp_ind(i) = tempI(1);
+end
+ind = temp_ind;
+
+%===============================================================================

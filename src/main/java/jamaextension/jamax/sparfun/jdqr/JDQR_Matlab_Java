@@ -1,0 +1,977 @@
+/*
+ * To change this template, choose Tools | Templates
+ * and open the template in the editor.
+ */
+package com.feynmance.jnumeric.jamax.sparfun.jdqr;
+
+import com.feynmance.jnumeric.jamax.*;
+import com.feynmance.jnumeric.jamax.constants.Dimension;
+import com.feynmance.jnumeric.jamax.timefun.Datevec;
+import java.util.GregorianCalendar;
+
+/**
+ *
+ * @author Sione
+ */
+public class Jdqr {
+
+    private int nargout;
+    private int nargin;
+    private Object[] varargin;
+    public static Object Qschur, Rschur, PinvQ, Pinv_u, Pu, nm_operations;
+
+    public Jdqr(int nargout, Object[] varargin) {
+        if (nargout < 1) {
+            throw new ConditionalException("Jdqr : Number of output arguments (= " + nargout + ") must be 1 or more.");
+        }//end
+        this.nargout = nargout;
+
+        if (varargin == null) {
+            throw new ConditionalException("Jdqr : Parameter \"varargin\" must be non-null.");
+        }
+        if (varargin.length == 0) {
+            throw new ConditionalException("Jdqr : Length of parameter \"varargin\" must be non-empty.");
+        }
+        this.varargin = varargin;
+        this.nargin = varargin.length;
+    }
+
+    public void build() {///////////////////////////////////////////////////////
+        ////////////////////////////////////////////////////////////////////////
+        //global Qschur Rschur PinvQ Pinv_u Pu nm_operations
+
+//if nargin==0, possibilities, return, end
+
+//%%% Read/set parameters
+//[n,nselect,sigma,SCHUR,...
+//   jmin,jmax,tol,maxit,V,INTERIOR,SHOW,PAIRS,JDV0,t_tol,...
+//   lsolver,LSpar] = ReadOptions(varargin{1:nargin});
+
+     Object[] obj = getArg(0, nargin-1, varargin);
+     obj = ReadOptions(obj);
+
+     int n = (Integer)obj[0];
+     int nselect = (Integer)obj[1];
+     Object sigma = obj[2];
+     Object SCHUR = obj[3];
+     int jmin = (Integer)obj[4];
+     int jmax = (Integer)obj[5];
+     double tol = (Double)obj[6];
+     int maxit = (Integer)obj[7];
+     Object V = obj[8];
+     Object INTERIOR  = obj[9];
+     Object SHOW  = obj[10];
+     Object PAIRS  = obj[11];
+     Object JDV0  = obj[12];
+     double t_tol = (Double)obj[13];
+     Object lsolver  = obj[14];
+     Object LSpar = obj[15];;
+
+Object LSpar0=LSpar;
+boolean JDV=false;//0;
+double tol0=tol;
+boolean LOCK0=  !MI.isChar(sigma);//~ischar(sigma);
+
+if (nargout>3){ SCHUR=0; }
+
+        tau=0;
+        if ( ((Integer)INTERIOR)>=1 && LOCK0) {
+            tau=sigma(1);
+        }// end
+int n_tar= ((Matrix)sigma).getRowDimension();//size(sigma,1);
+int nt=1;
+Object FIG=gcf();
+
+//%%% Initiate global variables
+ Qschur = new Matrix(null,n,0);//zeros(n,0);
+ Rschur = new Matrix();//[];
+ PinvQ  = new Matrix(null,n,0);//zeros(n,0);
+ Pinv_u = Matrix.zeros(n,1);
+ Pu = new Matrix();//[];
+ nm_operations = 0;
+Matrix history = new Matrix();//[];
+
+//%%% Return if eigenvalueproblem is trivial
+if (n<2){
+  if (n==1){
+      Qschur=new Matrix(1,1,1.0);//1;
+      if(true){
+        //Rschur=MV(1);
+        throw new IllegalArgumentException("build : Check if it is supposed to be -> \"Rschur=V(1)\".");
+      }
+   }//end
+  if (nargout == 0){
+      //eigenvalue=Rschur,
+  }else{
+     //[varargout{1:nargout}]=output(history,Qschur,Rschur);
+  }//end,
+  return;
+ }//end
+
+String string = "\r#it=%i #MV=%i dim(V)=%i |r_%i|=%6.1e  ";
+String trinP = "--- Checking for conjugate pair ---\n";
+Matrix time = new Datevec(new GregorianCalendar()).getDatevec();//clock;
+
+//%%% Initialize V, W:
+//%%%   V,W orthonormal, A*V=W*R+Qschur*E, R upper triangular
+obj = SetInitialSpaces(V,nselect,tau,jmin,tol);
+//[V,W,R,E,M] =
+V = obj[0];
+Object W = obj[1];
+Object R  = obj[2];
+Object E =  obj[3];
+Object M = obj[4];
+
+int j= MI.size(V, Dimension.COL);//size(V,2);
+int k= MI.size(Rschur, Dimension.ROW);//size(Rschur,1);
+int nit=0;
+int nlit=0;
+int SOLVED=0;
+
+switch INTERIOR
+
+case 0
+
+//%%% The JD loop (Standard)
+//%%%    V orthogonal, V orthogonal to Qschur
+//%%%    V*V=eye(j), Qschur'*V=0,
+//%%%    W=A*V, M=V'*W
+//%%%
+W=W*R;
+if tau ~=0;
+    W=W+tau*V;
+end,
+
+M=M'*R;
+temptarget=sigma(nt,:);
+
+while (k<nselect) & (nit < maxit)
+
+   //%%% Compute approximate eigenpair and residual
+   [UR,S]=SortSchur(M,temptarget,j==jmax,jmin);
+   y=UR(:,1);
+   theta=S(1,1);
+   u=V*y;
+   w=W*y;
+   r=w-theta*u;
+   [r,s]=RepGS(Qschur,r,0);
+   nr=norm(r);
+   r_KNOWN=1;
+
+   if LOCK0 & nr<t_tol,
+       temptarget=[theta;sigma(nt,:)];
+   end
+
+          % defekt=abs(norm(RepGS(Qschur,MV(u)-theta*u,0))-nr);
+          % DispResult('defekt',defekt,3)
+
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   history=[history;nr,nit,nm_operations];                         %%%
+   if SHOW,
+       fprintf(String,nit,nm_operations,j,nlit,nr)            %%%
+     if SHOW == 2,
+         LOCK =  LOCK0 & nr<t_tol;                       %%%
+       if MovieTheta(n,nit,diag(S),jmin,sigma(nt,:),LOCK,j==jmax)  %%%
+           break,
+       end,
+     end,
+   end                                            %%%
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+
+   %%% Check for convergence
+   if nr<tol
+
+      %%% Expand the partial Schur form
+      Qschur=[Qschur,u];
+      %% Rschur=[[Rschur;zeros(1,k)],Qschur'*MV(u)]; k=k+1;
+      Rschur=[Rschur,s;zeros(1,k),theta];
+      k=k+1;
+
+      %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+      if SHOW,
+          ShowLambda(theta,k),
+      end %%
+      %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+      if k>=nselect,
+          break,
+      end,
+      r_KNOWN=0;
+
+
+      %%% Expand preconditioned Schur matrix PinvQ
+      SOLVED=UpdateMinv(u,SOLVED);
+
+      if j==1,
+         [V,W,R,E,M]=SetInitialSpaces(zeros(n,0),nselect,tau,jmin,tol);
+         k=size(Rschur,1);
+         if k>=nselect,
+             break,
+         end
+         W=W*R;
+         if tau ~=0;
+             W=W+tau*V;
+         end;
+         M=M'*R;
+         j=size(V,2);
+      else
+         J=[2:j]; j=j-1; UR=UR(:,J);
+         M=S(J,J); V=V*UR; W=W*UR;
+      end
+
+     if PAIRS & abs(imag(theta))>tol,
+         v=imag(u/sign(max(u)));
+       if norm(v)>tol,
+           v=RepGS(Qschur,v,0);
+           EXPAND=(norm(v)>sqrt(tol));
+       end
+     end
+
+     if EXPAND,
+         temptarget=conj(theta);
+         if SHOW,
+             fprintf(StrinP),
+         end
+     else
+         nlit=0;
+         nt=min(nt+1,n_tar);
+         temptarget=sigma(nt,:);
+     end
+
+   end % nr<tol
+
+   %%% Check for shrinking the search subspace
+   if j>=jmax
+      j=jmin;
+      J=[1:j];
+      UR=UR(:,J);
+      M=S(J,J);
+      V=V*UR;
+      W=W*UR;
+   end % if j>=jmax
+
+   if r_KNOWN
+      %%% Solve correction equation
+      v=Solve_pce(theta,u,r,lsolver,LSpar,nlit);
+      SOLVED=1;
+      nlit=nlit+1;
+      nit=nit+1;
+      r_KNOWN=0;
+      EXPAND=1;
+   end % if r_KNOWN
+
+   if EXPAND
+      %%% Expand the subspaces of the interaction matrix
+      v=RepGS([Qschur,V],v);
+      if size(v,2)>0
+        w=MV(v);
+        M=[M,V'*w;v'*W,v'*w];
+        V=[V,v]; W=[W,w]; j=j+1;
+        EXPAND=0;
+        tol=tol0;
+      else
+        tol=2*tol;
+      end
+   end % if EXPAND
+
+end % while (nit<maxit)
+
+
+case 1
+
+%%% The JD loop (Harmonic Ritz values)
+%%%    Both V and W orthonormal and orthogonal w.r.t. Qschur
+%%%    V*V=eye(j), Qschur'*V=0, W'*W=eye(j), Qschur'*W=0
+%%%    (A*V-tau*V)=W*R+Qschur*E, E=Qschur'*(A*V-tau*V), M=W'*V
+%%%
+temptarget=0;
+FIXT=1;
+lsolver0=lsolver;
+
+while (k<nselect) & (nit<maxit)
+
+   %%% Compute approximate eigenpair and residual
+   [UR,UL,S,T]=SortQZ(R,M,temptarget,j>=jmax,jmin);
+   y=UR(:,1);
+   theta=T(1,1)'*S(1,1);
+   u=V*y;
+   w=W*(R*y);
+   r=w-theta*u;
+   nr=norm(r);
+   r_KNOWN=1;
+
+   if nr<t_tol,
+       temptarget=[theta;0];
+   end,
+
+   theta=theta+tau;
+
+           % defekt=abs(norm(RepGS(Qschur,MV(u)-theta*u,0))-nr);
+           % DispResult('defect',defekt,3)
+
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   history=[history;nr,nit,nm_operations];                           %%%
+   if SHOW,
+       fprintf(String,nit,nm_operations,j,nlit,nr)              %%%
+     if SHOW == 2,
+         Lambda=diag(S)./diag(T)+tau;
+         Lambda(1)=theta;     %%%
+       if MovieTheta(n,nit,Lambda,jmin,sigma(nt,:),nr<t_tol,j==jmax) %%%
+         break,
+       end,
+     end,
+   end                                              %%%
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+   %%% Check for convergence
+   if nr<tol
+
+     %%% Expand the partial Schur form
+     Qschur=[Qschur,u];
+     %% Rschur=[[Rschur;zeros(1,k)],Qschur'*MV(u)]; k=k+1;
+     Rschur=[Rschur,E*y;zeros(1,k),theta];   k=k+1;
+
+     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+     if SHOW,
+         ShowLambda(theta,k),
+     end %%
+     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+     if k>=nselect,
+         break,
+     end,
+     r_KNOWN=0;
+     JDV=0;
+
+     %%% Expand preconditioned Schur matrix PinvQ
+     SOLVED=UpdateMinv(u,SOLVED);
+
+     if j==1,
+       [V,W,R,E,M]= SetInitialSpaces(zeros(n,0),nselect,tau,jmin,tol);
+       k=size(Rschur,1);
+       if k>=nselect,
+           break,
+       end,
+       j=size(V,2);
+     else
+       J=[2:j];
+       j=j-1;
+       UR=UR(:,J);
+       UL=UL(:,J);
+       R=S(J,J);
+       M=T(J,J);
+       V=V*UR;
+       W=W*UL;
+
+       [r,a]=RepGS(u,r,0);
+       E=[E*UR;(T(1,1)'-a/S(1,1))*S(1,J)];
+
+       s=(S(1,J)/S(1,1))/R;
+       W=W+r*s;
+       M=M+s'*(r'*V);
+       if (nr*norm(s))^2>eps,
+           [W,R0]=qr(W,0);
+           R=R0*R;
+           M=R0'\M;
+       end
+     end
+
+     if PAIRS & abs(imag(theta))>tol,
+         v=imag(u/sign(max(u)));
+       if norm(v)>tol,
+           v=RepGS(Qschur,v,0);
+           EXPAND=(norm(v)>sqrt(tol));
+       end
+     end
+
+     if EXPAND,
+         if SHOW,
+             fprintf(StrinP),
+         end
+         temptarget=[conj(theta)-tau;0];
+     else
+         nlit=0; temptarget=0;
+         if nt<n_tar
+            nt=nt+1;
+            tau0=tau;
+            tau=sigma(nt,1);
+            tau0=tau0-tau;
+            [W,R]=qr(W*R+tau0*V,0); M=W'*V;
+         end
+     end
+
+   end
+
+   %%% Check for shrinking the search subspace
+   if j>=jmax
+      j=jmin;
+      J=[1:j];
+      UR=UR(:,J);
+      UL=UL(:,J);
+      R=S(J,J);
+      M=T(J,J);
+      V=V*UR;
+      W=W*UL;
+      E=E*UR;
+   end % if j>=jmax
+
+   if r_KNOWN
+      %%% Solve correction equation
+      if JDV, disp('Stagnation'),
+        LSpar(end-1)=(LSpar(end-1)+15)*2;
+        % lsolver='bicgstab'; LSpar=[1.e-2,300,4];
+      else
+        LSpar=LSpar0;
+        JDV=0;
+        lsolver=lsolver0;
+      end
+      if nr>0.001 & FIXT,
+          theta=tau;
+      else
+          FIXT=0;
+      end
+      v=Solve_pce(theta,u,r,lsolver,LSpar,nlit);
+      nlit=nlit+1;
+      nit=nit+1;
+      r_KNOWN=0;
+      EXPAND=1;
+      SOLVED=1;
+      JDV=0;
+   end
+
+   if EXPAND
+      %%% Expand the subspaces of the interaction matrix
+      [v,zeta]=RepGS([Qschur,V],v);
+      if JDV0 & abs(zeta(end,1))/norm(zeta)<0.06,
+          JDV=JDV+1;
+      end
+      if size(v,2)>0
+        w=MV(v);
+        if tau ~=0,
+            w=w-tau*v;
+        end
+        [w,e]=RepGS(Qschur,w,0);
+        [w,y]=RepGS(W,w);
+        R=[[R;zeros(1,j)],y];
+        M=[M,W'*v;w'*V,w'*v];
+        E=[E,e];
+        V=[V,v];
+        W=[W,w];
+        j=j+1;
+        EXPAND=0;
+        tol=tol0;
+      else
+        tol=2*tol;
+      end
+   end
+
+end % while (nit<maxit)
+
+case 1.1
+
+%%% The JD loop (Harmonic Ritz values)
+%%%    V W AV.
+%%%    Both V and W orthonormal and orthogonal w.r.t. Qschur, AV=A*V-tau*V
+%%%    V*V=eye(j),  W'*W=eye(j), Qschur'*V=0, Qschur'*W=0,
+%%%    (I-Qschur*Qschur')*AV=W*R, M=W'*V; R=W'*AV;
+%%%
+AV=W*R;
+temptarget=0;
+while (k<nselect) & (nit<maxit)
+
+   %%% Compute approximate eigenpair and residual
+   [UR,UL,S,T]=SortQZ(R,M,temptarget,j>=jmax,jmin);
+   y=UR(:,1);
+   u=V*y;
+   w=AV*y;
+   theta=u'*w;
+   r=w-theta*u;
+   [r,y]=RepGS(Qschur,r,0);
+   nr=norm(r);
+   r_KNOWN=1;
+   if nr<t_tol,
+       temptarget=[theta;0];
+   end,
+   theta=theta+tau;
+
+           % defekt=abs(norm(RepGS(Qschur,MV(u)-theta*u,0))-nr);
+           % DispResult('defect',defekt,3)
+
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   history=[history;nr,nit,nm_operations];                           %%%
+   if SHOW,
+       fprintf(String,nit,nm_operations,j,nlit,nr)              %%%
+     if SHOW == 2,
+         Lambda=diag(S)./diag(T)+tau;
+         Lambda(1)=theta;      %%%
+       if MovieTheta(n,nit,Lambda,jmin,sigma(nt,:),nr<t_tol,j==jmax) %%%
+           break,
+       end,
+     end,
+   end                                              %%%
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+   %%% Check for convergence
+   if nr<tol
+
+     %%% Expand the partial Schur form
+     Qschur=[Qschur,u];
+     %% Rschur=[[Rschur;zeros(1,k)],Qschur'*MV(u)]; k=k+1;
+     Rschur=[Rschur,y;zeros(1,k),theta];
+     k=k+1;
+
+     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+     if SHOW,
+         ShowLambda(theta,k),
+     end %%
+     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+     if k>=nselect,
+         break,
+     end,
+     r_KNOWN=0;
+
+     %%% Expand preconditioned Schur matrix PinvQ
+     SOLVED=UpdateMinv(u,SOLVED);
+
+     if j==1
+       [V,W,R,E,M]=SetInitialSpaces(zeros(n,0),nselect,tau,jmin,tol);
+       k=size(Rschur,1);
+       if k>=nselect,
+           break,
+       end
+       AV=W*R;
+       j=size(V,2);
+     else
+       J=[2:j];
+       j=j-1;
+       UR=UR(:,J);
+       UL=UL(:,J);
+       AV=AV*UR;
+       R=S(J,J);
+       M=T(J,J);
+       V=V*UR;
+       W=W*UL;
+     end
+
+     if PAIRS & abs(imag(theta))>tol,
+         v=imag(u/sign(max(u)));
+       if norm(v)>tol,
+           v=RepGS(Qschur,v,0);
+           EXPAND=(norm(v)>sqrt(tol));
+       end
+     end
+
+     if EXPAND,
+       if SHOW,
+          fprintf(StrinP),
+       end
+       temptarget=[conj(theta)-tau;0];
+     else
+       nlit=0;
+       temptarget=0;
+       if nt<n_tar
+         nt=nt+1;
+         tau0=tau;
+         tau=sigma(nt,1);
+         tau0=tau0-tau;
+         AV=AV+tau0*V;
+         [W,R]=qr(W*R+tau0*V,0);
+         M=W'*V;
+       end
+     end
+
+   end
+
+   %%% Check for shrinking the search subspace
+   if j>=jmax
+     j=jmin;
+     J=[1:j];
+     UR=UR(:,J);
+     UL=UL(:,J);
+     AV=AV*UR;
+     R=S(J,J);
+     M=T(J,J);
+     V=V*UR;
+     W=W*UL;
+   end % if j>=jmax
+
+   if r_KNOWN
+     %%% Solve correction equation
+     v=Solve_pce(theta,u,r,lsolver,LSpar,nlit);
+     SOLVED=1;
+     nlit=nlit+1;
+     nit=nit+1;
+     r_KNOWN=0;
+     EXPAND=1;
+   end
+
+   if EXPAND
+     %%% Expand the subspaces of the interaction matrix
+     v=RepGS([Qschur,V],v);
+     if size(v,2)>0
+       w=MV(v);
+       if tau ~=0,
+           w=w-tau*v;
+       end
+       AV=[AV,w];
+       R=[R,W'*w];
+       w=RepGS([Qschur,W],w);
+       R=[R;w'*AV];
+       M=[M,W'*v;w'*V,w'*v];
+       V=[V,v];
+       W=[W,w];
+       j=j+1;
+       EXPAND=0;
+       tol=tol0;
+     else
+       tol=2*tol;
+     end
+   end
+
+end % while (nit<maxit)
+
+case 1.2
+
+%%% The JD loop (Harmonic Ritz values)
+%%%    W orthonormal, V and W orthogonal to Qschur,
+%%%    W'*W=eye(j), Qschur'*V=0, Qschur'*W=0
+%%%    W=(A*V-tau*V)-Qschur*E, E=Qschur'*(A*V-tau*V),
+%%%    M=W'*V
+V=V/R;
+M=M/R;
+temptarget='LM';
+E=E/R;
+
+while (k<nselect) & (nit<maxit)
+
+   %%% Compute approximate eigenpair and residual
+   [UR,S]=SortSchur(M,temptarget,j==jmax,jmin);
+   y=UR(:,1);
+   u=V*y;
+   nrm=norm(u);
+   y=y/nrm;
+   u=u/nrm;
+   theta=S(1,1)'/(nrm*nrm);
+   w=W*y;
+   r=w-theta*u;
+   nr=norm(r);
+   r_KNOWN=1;
+   if nr<t_tol,
+       temptarget=[S(1,1);inf];
+   end,
+   theta=theta+tau;
+
+           % defekt=abs(norm(RepGS(Qschur,MV(u)-theta*u,0))-nr);
+           % DispResult('defect',defekt,3)
+
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+   history=[history;nr,nit,nm_operations];                           %%%
+   if SHOW,
+     fprintf(String,nit,nm_operations,j,nlit,nr)              %%%
+     if SHOW == 2,
+         Lambda=1./diag(S)+tau;
+         Lambda(1)=theta;           %%%
+       if MovieTheta(n,nit,Lambda,jmin,sigma(nt,:),nr<t_tol,j==jmax) %%%
+         break,
+       end,
+     end,
+   end                                              %%%
+   %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+   %%% Check for convergence
+   if nr<tol
+
+     %%% Expand the partial Schur form
+     Qschur=[Qschur,u];
+     %% Rschur=[[Rschur;zeros(1,k)],Qschur'*MV(u)]; k=k+1;
+     y=E*y;
+     Rschur=[Rschur,y;zeros(1,k),theta];
+     k=k+1;
+
+     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+     if SHOW,
+         ShowLambda(theta,k),
+     end %%
+     %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+     if k>=nselect,
+         break,
+     end,
+     r_KNOWN=0;
+
+     %%% Expand preconditioned Schur matrix PinvQ
+     SOLVED=UpdateMinv(u,SOLVED);
+
+     if j==1
+       [V,W,R,E,M]=SetInitialSpaces(zeros(n,0),nselect,tau,jmin,tol);
+       k=size(Rschur,1);
+       if k>=nselect,
+           break,
+       end
+       V=V/R;
+       j=size(V,2);
+       M=M/R;
+       E=E/R;
+     else
+       J=[2:j];
+       j=j-1;
+       UR=UR(:,J);
+       M=S(J,J);
+       V=V*UR;
+       W=W*UR;
+       [r,a]=RepGS(u,r,0);
+       s=u'*V;
+       V=V-u*s;
+       W=W-r*s;
+       M=M-s'*(r'*V)-(W'*u)*s;
+       E=[E*UR-y*s;(tau-theta-a)*s];
+
+       if (nr*norm(s))^2>eps,
+           [W,R]=qr(W,0);
+           V=V/R;
+           M=(R'\M)/R;
+           E=E/R;
+       end
+     end
+
+     if PAIRS & abs(imag(theta))>tol,
+         v=imag(u/sign(max(u)));
+       if norm(v)>tol,
+           v=RepGS(Qschur,v,0);
+           EXPAND=(norm(v)>sqrt(tol));
+       end
+     end
+
+     if EXPAND,
+         if SHOW,
+           fprintf(StrinP),
+         end
+         temptarget=[1/(conj(theta)-tau);inf];
+     else
+         nlit=0;
+         temptarget='LM';
+       if nt<n_tar
+         nt=nt+1;
+         tau0=tau;
+         tau=sigma(nt,1);
+         [W,R]=qr(W+(tau0-tau)*V,0);
+         V=V/R;
+         M=W'*V;
+         E=E/R;
+       end
+     end
+
+   end
+
+   %%% Check for shrinking the search subspace
+   if j>=jmax
+     j=jmin;
+     J=[1:j];
+     UR=UR(:,J);
+     M=S(J,J);
+     V=V*UR;
+     W=W*UR;
+     E=E*UR;
+   end % if j>=jmax
+
+   if r_KNOWN
+     %%% Solve correction equation
+     v=Solve_pce(theta,u,r,lsolver,LSpar,nlit);
+     SOLVED=1;
+     nlit=nlit+1;
+     nit=nit+1;
+     r_KNOWN=0;
+     EXPAND=1;
+   end
+
+   if EXPAND
+     %%% Expand the subspaces of the interaction matrix
+     v=RepGS(Qschur,v,0);
+     if size(v,2)>0
+       w=MV(v);
+       if tau ~=0,
+           w=w-tau*v;
+       end
+       [w,e]=RepGS(Qschur,w,0);
+       [w,y]=RepGS(W,w);
+       nrw=y(j+1,1);
+       y=y(1:j,:);
+       v=v-V*y;
+       v=v/nrw;
+       e=e-E*y;
+       e=e/nrw;
+       M=[M,W'*v;w'*V,w'*v];
+       V=[V,v];
+       W=[W,w];
+       j=j+1;
+       E=[E,e];
+
+       if 1/cond(M)<10*tol
+         [V,W,R,E,M]=SetInitialSpaces(V,nselect,tau,jmin,tol,W,E);
+         k=size(Rschur,1);
+         if k>=nselect,
+             break
+         end
+         V=V/R;
+         M=M/R;
+         j=size(V,2);
+         temptarget='LM';
+         E=E/R;
+       end
+
+       EXPAND=0;
+       tol=tol0;
+     else
+       tol=2*tol;
+     end
+   end
+
+end % while (nit<maxit)
+
+
+end % case
+
+
+time_needed=etime(clock,time);
+
+Refine([Qschur,V],1);% 2-SCHUR);
+CheckSortSchur(sigma);
+
+Lambda=[];
+X=zeros(n,0);
+if ~SCHUR & k>0,
+    [z,Lambda]=Jordan(Rschur);
+    X=Qschur*z;
+end
+
+%-------------- display results ----------------------------
+if SHOW == 2,
+    MovieTheta,
+    figure(FIG),
+end
+
+if SHOW & size(history,1)>0
+
+   switch INTERIOR
+      case 0
+        testspace='V, V orthonormal';
+      case 1
+        testspace='A*V-sigma*V, V and W orthonormal';
+      case 1.1
+        testspace='A*V-sigma*V, V and W orthonormal, AV';
+      case 1.2
+        testspace='A*V-sigma*V, W orthogonal';
+      otherwise
+        testspace='Experimental';
+   end
+
+   StringT=sprintf('The test subspace W is computed as  W = %s.',testspace);
+   StringX=sprintf('JDQZ with jmin=%g, jmax=%g, residual tolerance %g.',...
+           jmin,jmax,tol);
+   StringY=sprintf('Correction equation solved with %s.',lsolver);
+   date=fix(clock);
+   String=sprintf('\n%2i-%2i-%2i, %2i:%2i:%2i',date(3:-1:1),date(4:6));
+
+   StringL='log_{10} || r_{#it} ||_2';
+   for pl=1:SHOW
+     subplot(SHOW,1,pl), t=history(:,pl+1);
+     plot(t,log10(history(:,1)),'*-',t,log10(tol)+0*t,':')
+     legend(StringL), title(StringT)
+     StringL='log_{10} || r_{#MV} ||_2'; StringT=StringX;
+   end
+   if SHOW==2,
+       xlabel([StringY,String])
+   else
+       xlabel([StringX,String]),
+       ylabel(StringY),
+   end
+   drawnow
+end
+
+if SHOW
+   str1=num2str(abs(k-nselect));
+   str='s';
+   if k>nselect,
+     if k==nselect+1,
+         str1='one';
+         str='';
+     end
+     fprintf('\n\nDetected %s additional eigenpair%s.',str1,str)
+   end
+   if k<nselect,
+     if k==0,
+         str1='any';
+         str='';
+     elseif k==nselect-1,
+         str1='one';
+         str='';
+     end
+     fprintf('\n\nFailed detection of %s eigenpair%s.',str1,str)
+   end
+   if k>0,
+       ShowLambda(diag(Rschur));
+   else
+       fprintf('\n');
+   end
+
+   Str='time_needed';
+   DispResult(Str,eval(Str))
+   if (k>0)
+      if ~SCHUR
+        Str='norm(MV(X)-X*Lambda)';
+        DispResult(Str,eval(Str))
+      end
+      Str='norm(MV(Qschur)-Qschur*Rschur)';
+      DispResult(Str,eval(Str))
+      I=eye(k);
+      Str='norm(Qschur''*Qschur-I)';
+      DispResult(Str,eval(Str))
+   end
+   fprintf('\n\n')
+
+end
+
+if nargout == 0,
+    if ~SHOW,
+        eigenvalues=diag(Rschur),
+    end,
+    return,
+end
+[varargout{1:nargout}]=output(history,X,Lambda);
+    }///////////////////////////////////////////////////////////////////////////
+    ////////////////////////////////////////////////////////////////////////////
+
+private Object[] ReadOptions(Object[] varObj){
+  if(true){
+    throw new IllegalArgumentException("ReadOptions : To be implemented.");
+   }
+   return null;
+}
+
+private Object[] getArg(int from, int to, Object[] varArgs){
+     int len = varArgs.length;
+     Object[] retObj = new Object[to-from+1];
+     if(true){
+    throw new IllegalArgumentException("getArg : To be implemented.");
+   }
+     return retObj;
+   }
+
+private Object gcf(){
+if(true){
+    throw new IllegalArgumentException("gcf : This function is NOT to be implemented.");
+   }
+return new Object();
+ }
+
+private Object[] SetInitialSpaces(Object V, Object nselect,Object  tau, Object jmin, Object  tol, Object W, Object E){
+    Object[] retObj = new Object[5];
+     if(true){
+    throw new IllegalArgumentException("SetInitialSpaces : To be implemented.");
+   }
+     return retObj;
+ }
+
+}
